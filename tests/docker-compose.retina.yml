@@ -1,0 +1,194 @@
+version: '3.8'
+
+networks:
+  3lips:
+    driver: bridge
+  retina-network:
+    driver: bridge
+
+services:
+  # Synthetic ADS-B data source
+  synthetic-adsb:
+    build:
+      context: ../../synthetic-adsb
+      dockerfile: Dockerfile
+    image: synthetic-adsb
+    ports:
+      - "5001:5001"
+    networks:
+      - retina-network
+    environment:
+      - TX_LAT=-34.9810
+      - TX_LON=138.7081
+      - TX_ALT=750
+      - FC_MHZ=204.64
+      - RADIUS_DEG=0.05
+      - ANGULAR_SPEED=0.01
+      - ALT_BARO_FT=30000
+      - ICAO_HEX=AEF123
+      - HOST=0.0.0.0
+      - PORT=5001
+    container_name: synthetic-adsb-test
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/data/aircraft.json"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ADS-B to Delay-Doppler converter
+  adsb2dd:
+    build:
+      context: ../../adsb2dd
+      dockerfile: Dockerfile
+    image: adsb2dd
+    ports:
+      - "49155:49155"
+    networks:
+      - retina-network
+    container_name: adsb2dd-test
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:49155/api/status"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Synthetic ADS-B Bridge (polls and serves radar data)
+  synthetic-bridge:
+    build:
+      context: ../../synthetic-adsb
+      dockerfile: Dockerfile.bridge
+    image: synthetic-bridge
+    networks:
+      - retina-network
+    environment:
+      - ADSB_JSON_HOST=http://synthetic-adsb:5001
+      - ADSB_JSON_PATH=/data/aircraft.json
+      - ADSB2DD_URL=http://adsb2dd:49155/api/dd
+      - POLL_RATE_HZ=1.0
+      - RADARS=[{"id":"rx1","lat":-34.9192,"lon":138.6027,"alt":110},{"id":"rx2","lat":-34.9315,"lon":138.6967,"alt":408},{"id":"rx3","lat":-34.8414,"lon":138.7237,"alt":230}]
+      - TX={"lat":-34.9810,"lon":138.7081,"alt":750}
+      - FC_MHZ=204.64
+    container_name: synthetic-bridge-test
+    depends_on:
+      synthetic-adsb:
+        condition: service_healthy
+      adsb2dd:
+        condition: service_healthy
+    ports:
+      - "49158:49158"
+      - "49159:49159"
+      - "49160:49160"
+
+  # 3lips API Service
+  api:
+    build:
+      context: ..
+      dockerfile: ./api/Dockerfile
+    image: 3lips-api-test
+    ports:
+      - "8080:5000"
+    networks:
+      - 3lips
+      - retina-network
+    volumes:
+      - ../config:/app/config
+      - ../common:/app/common
+    container_name: 3lips-api-test
+    environment:
+      - FLASK_ENV=testing
+      - RADAR_NAMES=["rx1","rx2","rx3"]
+      - RADAR_URLS=["http://synthetic-bridge:49158","http://synthetic-bridge:49159","http://synthetic-bridge:49160"]
+      - MAP_LATITUDE=-34.9810
+      - MAP_LONGITUDE=138.7081
+      - ELLIPSE_N_SAMPLES=100
+      - ELLIPSOID_THRESHOLD=500
+      - ASSOCIATOR=["adsb"]
+      - LOCALISATION=["EllipseParametric","EllipsoidParametric","SphericalIntersection","RETINASolverLocalisation"]
+      - SOLVER=simple
+      - OUTPUT_DATA=false
+      - OUTPUT_JSON_TYPE=gzip
+      - OUTPUT_JSON_GZIP_PATH=./save/
+      - TRACK=true
+      - TRACK_TYPE=stone-soup
+      - TRACK_TOAD_CONF_THRESH=3
+      - TRACK_TOAD_DEL_THRESH=1
+      - TRACK_TOAD_SAVE_PATH=./save/
+      - TRACK_TOAD_PREINIT_SIGMA=1000
+      - TRACK_TOAD_SIGMA=10
+      - TRACK_TOAD_SMOOTH=0
+      - TRACK_TOAD_GATING=20000
+      - ADSB=["http://synthetic-adsb:5001/data/aircraft.json"]
+      - ADSB_REFRESH=1
+      - ADSB_TIMEOUT=10
+      - ADSB_BYPASS=true
+      - ADSB_TRACK_ALL=false
+      - SAVE_IQ=false
+      - OVERRIDE_STOP_LOWER_FREQ=180
+      - OVERRIDE_STOP_UPPER_FREQ=220
+    depends_on:
+      - event
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # 3lips Event Processing Service
+  event:
+    build:
+      context: ../event
+      dockerfile: Dockerfile
+    image: 3lips-event-test
+    networks:
+      - 3lips
+      - retina-network
+    volumes:
+      - ../config:/app/config
+      - ../common:/app/common
+      - ../test:/app/test
+      - ../save:/app/save
+      - ../../RETINAsolver:/app/RETINAsolver
+    container_name: 3lips-event-test
+    environment:
+      - FLASK_ENV=testing
+      - RADAR_NAMES=["rx1","rx2","rx3"]
+      - RADAR_URLS=["http://synthetic-bridge:49158","http://synthetic-bridge:49159","http://synthetic-bridge:49160"]
+      - MAP_LATITUDE=-34.9810
+      - MAP_LONGITUDE=138.7081
+      - ELLIPSE_N_SAMPLES=100
+      - ELLIPSOID_THRESHOLD=500
+      - ASSOCIATOR=["adsb"]
+      - LOCALISATION=["EllipseParametric","EllipsoidParametric","SphericalIntersection","RETINASolverLocalisation"]
+      - SOLVER=simple
+      - OUTPUT_DATA=false
+      - OUTPUT_JSON_TYPE=gzip
+      - OUTPUT_JSON_GZIP_PATH=./save/
+      - TRACK=true
+      - TRACK_TYPE=stone-soup
+      - TRACK_TOAD_CONF_THRESH=3
+      - TRACK_TOAD_DEL_THRESH=1
+      - TRACK_TOAD_SAVE_PATH=./save/
+      - TRACK_TOAD_PREINIT_SIGMA=1000
+      - TRACK_TOAD_SIGMA=10
+      - TRACK_TOAD_SMOOTH=0
+      - TRACK_TOAD_GATING=20000
+      - ADSB=["http://synthetic-adsb:5001/data/aircraft.json"]
+      - ADSB_REFRESH=1
+      - ADSB_TIMEOUT=10
+      - ADSB_BYPASS=true
+      - ADSB_TRACK_ALL=false
+      - SAVE_IQ=false
+      - OVERRIDE_STOP_LOWER_FREQ=180
+      - OVERRIDE_STOP_UPPER_FREQ=220
+    depends_on:
+      synthetic-bridge:
+        condition: service_started
+
+  # 3lips Cesium Visualization Service
+  cesium:
+    build:
+      context: ../cesium
+      dockerfile: Dockerfile
+    image: 3lips-cesium-test
+    ports:
+      - "8081:80"
+    networks:
+      - 3lips
+    container_name: 3lips-cesium-test

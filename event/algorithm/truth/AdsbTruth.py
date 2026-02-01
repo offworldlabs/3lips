@@ -47,7 +47,7 @@ class AdsbTruth:
 
         # Translate localhost to container name for inter-container communication
         translated_server = translate_localhost_to_container(server)
-        
+
         # Check if server is on local network
         if is_localhost(server):
             url = "http://" + translated_server + "/data/aircraft.json"

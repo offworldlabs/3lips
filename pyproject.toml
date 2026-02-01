@@ -49,6 +49,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "test_*.py" = ["S101", "ANN201", "ANN001"]
+"tests/unit/event/localisation/test_retina_solver_*.py" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

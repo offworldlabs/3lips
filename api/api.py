@@ -70,6 +70,7 @@ localisations = [
     {"name": "Ellipsoid Parametric (Mean)", "id": "ellipsoid-parametric-mean"},
     {"name": "Ellipsoid Parametric (Min)", "id": "ellipsoid-parametric-min"},
     {"name": "Spherical Intersection", "id": "spherical-intersection"},
+    {"name": "RETINA Solver", "id": "retina-solver"},
 ]
 
 adsbs = [
@@ -171,6 +172,7 @@ def api():
         return reply
     except Exception as e:
         import traceback
+
         error_trace = traceback.format_exc()
         print(f"Exception occurred: {e}", flush=True)
         print(f"Traceback: {error_trace}", flush=True)

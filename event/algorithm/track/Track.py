@@ -2,6 +2,7 @@ from enum import Enum, auto
 
 import numpy as np
 from stonesoup.types.track import Track as StoneSoupTrack
+
 from ..geometry.Geometry import Geometry
 
 
@@ -15,18 +16,6 @@ class TrackStatus(Enum):
 
 class Track(StoneSoupTrack):
     """Extension of Stone-Soup's Track to add custom fields and logic for 3lips."""
-    
-    # Class-level reference point for ENU to LLA conversion
-    ref_lat = -34.9286  # Adelaide reference latitude
-    ref_lon = 138.5999  # Adelaide reference longitude  
-    ref_alt = 0.0       # Reference altitude
-    
-    @classmethod
-    def set_reference_point(cls, lat, lon, alt):
-        """Set the reference point for ENU to LLA conversion."""
-        cls.ref_lat = lat
-        cls.ref_lon = lon
-        cls.ref_alt = alt
 
     def __init__(
         self,
@@ -75,6 +64,11 @@ class Track(StoneSoupTrack):
         self.covariance_matrix = None
         self.timestamp_update_ms = None
 
+        # Initialize ENU reference point (will be set by tracker)
+        self.ref_lat = None
+        self.ref_lon = None
+        self.ref_alt = None
+
         if adsb_info:
             print(
                 f"[TRACK] Created {status.name} track {self.id} for ADS-B aircraft {adsb_info.get('hex', 'unknown')}",
@@ -84,9 +78,10 @@ class Track(StoneSoupTrack):
 
     def update(self, detection, timestamp_ms, new_state, new_covariance):
         """Update the track's state, covariance, and history. Compatible with Tracker's update call."""
-        from stonesoup.types.state import State
         from datetime import datetime
-        
+
+        from stonesoup.types.state import State
+
         old_pos = self.state_vector[:3] if self.state_vector is not None else None
         new_pos = new_state[:3] if new_state is not None else None
 
@@ -98,16 +93,16 @@ class Track(StoneSoupTrack):
         self.state_vector = new_state
         self.covariance_matrix = new_covariance
         self.timestamp_update_ms = timestamp_ms
-        
+
         # Create a new State object and append to states list for to_dict() compatibility
         new_state_obj = State(
             state_vector=new_state,
-            timestamp=datetime.fromtimestamp(timestamp_ms / 1000.0)
+            timestamp=datetime.fromtimestamp(timestamp_ms / 1000.0),
         )
-        if hasattr(new_state_obj, 'covar'):
+        if hasattr(new_state_obj, "covar"):
             new_state_obj.covar = new_covariance
         self.append(new_state_obj)
-        
+
         # Update custom fields/history
         self.update_custom(detection)
 
@@ -164,11 +159,20 @@ class Track(StoneSoupTrack):
 
     def get_position_lla(self):
         """Returns the track's current position in LLA (Latitude, Longitude, Altitude).
-        Assumes the state vector stores position in a way that can be converted or is already LLA.
+        Converts from internal ENU state to LLA using reference point.
         """
         if self.states and len(self.states[-1].state_vector) >= 3:
             sv = self.states[-1].state_vector
-            return (sv[0], sv[1], sv[2])
+            # Convert from ENU to LLA if reference point is available
+            if self.ref_lat is not None:
+                east, north, up = sv[0], sv[1], sv[2]
+                lat, lon, alt = Geometry.enu2lla(
+                    east, north, up, self.ref_lat, self.ref_lon, self.ref_alt
+                )
+                return (lat, lon, alt)
+            else:
+                # Fallback if no reference point (shouldn't happen)
+                return (sv[0], sv[1], sv[2])
         return None
 
     def to_dict(self):
@@ -178,28 +182,35 @@ class Track(StoneSoupTrack):
         if self.states:
             state_vector = self.states[-1].state_vector
             # Flatten nested arrays to a simple list
-            if hasattr(state_vector, 'flatten'):
+            if hasattr(state_vector, "flatten"):
                 state_enu = state_vector.flatten()
             else:
                 state_enu = np.array(state_vector)
-            
-            if len(state_enu) >= 3:
+
+            if len(state_enu) >= 3 and self.ref_lat is not None:
                 # Convert ENU position to LLA for frontend
                 east, north, up = state_enu[0], state_enu[1], state_enu[2]
                 lat, lon, alt = Geometry.enu2lla(
-                    east, north, up,
-                    self.ref_lat, self.ref_lon, self.ref_alt
+                    east, north, up, self.ref_lat, self.ref_lon, self.ref_alt
                 )
-                
-                # Create LLA state vector (position + velocity in LLA frame)
+
+                # Create LLA state vector (position + velocity in ENU frame)
                 if len(state_enu) >= 6:
-                    # For velocity, we can keep ENU values as they represent rates
-                    current_state_lla = [lat, lon, alt, state_enu[3], state_enu[4], state_enu[5]]
+                    # For velocity, we keep ENU values as they represent rates in local frame
+                    current_state_lla = [
+                        lat,
+                        lon,
+                        alt,
+                        state_enu[3],  # velocity east
+                        state_enu[4],  # velocity north
+                        state_enu[5],  # velocity up
+                    ]
                 else:
                     current_state_lla = [lat, lon, alt]
             else:
+                # Fallback if no reference point (shouldn't happen)
                 current_state_lla = state_enu.tolist()
-        
+
         return {
             "track_id": self.id,
             "status": self.status.name

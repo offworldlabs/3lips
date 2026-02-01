@@ -39,6 +39,7 @@ class AdsbAssociator(Associator):
             if valid_config and valid_detection:
                 # get URL for adsb2truth
                 url = self.generate_api_url(radar, radar_data[radar])
+                print(f"🔗 Generated URL: {url}")
 
                 # get ADSB detections
                 try:
@@ -82,7 +83,7 @@ class AdsbAssociator(Associator):
         @return dict: Associated detections.
         """
         assoc_detections = {}
-        distance_window = 10
+        distance_window = 100
 
         for aircraft in adsb_detections:
             if "delay" in radar_detections:
@@ -116,12 +117,15 @@ class AdsbAssociator(Associator):
                         radar_dopplers,
                     )
                     if distance < distance_window:
+                        print(f"✅ ASSOCIATION SUCCESS: {aircraft} on {radar}, distance={distance:.3f}")
                         assoc_detections[aircraft] = {
                             "radar": radar,
                             "delay": closest_point[0],
                             "doppler": closest_point[1],
                             "timestamp": adsb_detections[aircraft]["timestamp"],
                         }
+                    else:
+                        print(f"❌ ASSOCIATION FAIL: {aircraft} on {radar}, distance={distance:.3f} > {distance_window}")
 
         return assoc_detections
 
@@ -141,6 +145,13 @@ class AdsbAssociator(Associator):
         fc = radar_data["config"]["capture"]["fc"]
 
         adsb = radar_data["config"]["truth"]["adsb"]["tar1090"]
+        
+        # Translate localhost URLs to container names for adsb2dd
+        original_adsb = str(adsb)
+        adsb = str(adsb).replace("localhost:5001", "synthetic-adsb-test:5001")
+        adsb = str(adsb).replace("//localhost:5001", "//synthetic-adsb-test:5001")
+        if original_adsb != adsb:
+            print(f"📡 Translated ADS-B URL: {original_adsb} → {adsb}")
 
         api_url = os.environ.get("ADSB2DD_API_URL", "http://adsb2dd.30hours.dev/api/dd")
         if not api_url.startswith("http://") and not api_url.startswith("https://"):

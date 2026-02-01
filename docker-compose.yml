@@ -39,6 +39,7 @@ services:
       - ./common:/app/common
       - ./test:/app/test
       - ./save:/app/save
+      - ../RETINAsolver:/app/RETINAsolver
     container_name: 3lips-event
     env_file:
       - .env

@@ -37,6 +37,7 @@ services:
       # Enhanced hot-reloading for development
       - ./event:/app/event:ro
       - ./event/algorithm:/app/event/algorithm:ro
+      - ../RETINAsolver:/app/RETINAsolver
     environment:
       - TRACKER_VERBOSE=true
       - PYTHONUNBUFFERED=1

@@ -1,0 +1,67 @@
+
+version: '3.8'
+
+networks:
+  3lips:
+    driver: bridge
+  retina-network:
+    external: true
+    name: retina-network
+
+services:
+  # Synthetic ADS-B data source
+  synthetic-adsb:
+    build:
+      context: ../synthetic-adsb
+      dockerfile: Dockerfile
+    image: synthetic-adsb
+    ports:
+      - "5001:5001"
+    networks:
+      - retina-network
+      - 3lips
+    container_name: synthetic-adsb-test
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TRANSMITTER_LAT=-34.9286
+      - TRANSMITTER_LON=138.5999
+      - RADAR1_LAT=-34.9000
+      - RADAR1_LON=138.6000
+      - RADAR2_LAT=-34.9500
+      - RADAR2_LON=138.6000
+    volumes:
+      - ../synthetic-adsb:/app
+    command: ["python", "server.py"]
+
+  # 3lips API with RETINASolver
+  api:
+    extends:
+      file: docker-compose.yml
+      service: api
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - LOCALISATION_ALGORITHM=${LOCALISATION_ALGORITHM:-retina-solver}
+      - ADSB_URL=http://synthetic-adsb-test:5001
+    depends_on:
+      - event
+      - synthetic-adsb
+
+  # Event processor with RETINASolver integration
+  event:
+    extends:
+      file: docker-compose.yml 
+      service: event
+    environment:
+      - TRACKER_VERBOSE=true
+      - LOCALISATION_ALGORITHM=${LOCALISATION_ALGORITHM:-retina-solver}
+      - ADSB_URL=http://synthetic-adsb-test:5001
+      - SYNTHETIC_RADAR_URLS=http://synthetic-adsb-test:5001/radar1,http://synthetic-adsb-test:5001/radar2,http://synthetic-adsb-test:5001/radar3
+    depends_on:
+      - synthetic-adsb
+
+  # Cesium visualization
+  cesium-apache:
+    extends:
+      file: docker-compose.yml
+      service: cesium-apache
