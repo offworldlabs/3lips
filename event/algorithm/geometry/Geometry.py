@@ -7,9 +7,12 @@ import os
 import sys
 
 # Import RETINAsolver geometry functions directly
-retina_solver_path = os.environ.get("RETINA_SOLVER_PATH", "/app/RETINAsolver")
+_default_solver_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "RETINAsolver")
+)
+retina_solver_path = os.environ.get("RETINA_SOLVER_PATH", _default_solver_path)
 if retina_solver_path not in sys.path:
-    sys.path.append(retina_solver_path)
+    sys.path.insert(0, retina_solver_path)
 
 try:
     # Import the entire Geometry class from RETINAsolver
@@ -189,13 +192,13 @@ except ImportError:
             """Mock distance between two LLA points using ENU conversion."""
             # Use first point as reference
             ref_lat, ref_lon, ref_alt = point1
-            
+
             # Convert second point to ENU relative to first point
             east, north, up = MockGeometry.lla2enu(
                 point2[0], point2[1], point2[2],
                 ref_lat, ref_lon, ref_alt
             )
-            
+
             # Calculate distance from origin (0,0,0) to the ENU point
             return np.sqrt(east**2 + north**2 + up**2)
 
